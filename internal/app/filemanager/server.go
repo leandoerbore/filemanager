@@ -11,7 +11,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	files "filemanager/internal/app/file"
+	storage "filemanager/internal/app/file"
 
 	"filemanager/internal/app/file/store/minio"
 )
@@ -19,11 +19,11 @@ import (
 type server struct {
 	router  *mux.Router
 	logger  *logrus.Logger
-	service files.Service
+	service storage.Service
 }
 
 func newServer(client *minio.Client, logger *logrus.Logger) *server {
-	service, err := files.NewService(client, logger)
+	service, err := storage.NewService(client, logger)
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -74,8 +74,8 @@ func (s *server) handleUpload() http.HandlerFunc {
 			return
 		}
 
-		file, ok := r.MultipartForm.File["file"]
-		if !ok || len(file) == 0 {
+		files, ok := r.MultipartForm.File["file"]
+		if !ok || len(files) == 0 {
 			s.error(w, r, http.StatusBadRequest, err)
 			return
 		}
@@ -86,20 +86,45 @@ func (s *server) handleUpload() http.HandlerFunc {
 			return
 		}
 
-		fileInfo := file[0]
-		fileReader, err := fileInfo.Open()
-		dto := files.CreateFileDTO{
-			Name:   fileInfo.Filename,
-			Dir:    dir[0],
-			Size:   fileInfo.Size,
-			Reader: fileReader,
+		for _, file := range files {
+			fileReader, err := file.Open()
+			if err != nil {
+				s.error(w, r, http.StatusBadRequest, err)
+			}
+
+			name := strings.ReplaceAll(file.Filename, " ", "_")
+			if err != nil {
+				s.error(w, r, http.StatusBadRequest, err)
+			}
+			name = fmt.Sprintf("%s/%s", dir[0], name)
+			fileType := file.Header.Get("Content-Type")
+
+			f := storage.Upload{
+				Name: name,
+				Type: fileType,
+				Size: file.Size,
+				Data: fileReader,
+			}
+
+			if err := s.service.UploadFile(r.Context(), &f); err != nil {
+				s.error(w, r, http.StatusBadRequest, err)
+			}
 		}
 
-		err = s.service.UploadFile(r.Context(), dto)
-		if err != nil {
-			s.error(w, r, http.StatusInternalServerError, err)
-			return
-		}
+		// fileInfo := file[0]
+		// fileReader, err := fileInfo.Open()
+		// dto := files.CreateFileDTO{
+		// 	Name:   fileInfo.Filename,
+		// 	Dir:    dir[0],
+		// 	Size:   fileInfo.Size,
+		// 	Reader: fileReader,
+		// }
+
+		// err = s.service.UploadFile(r.Context(), dto)
+		// if err != nil {
+		// 	s.error(w, r, http.StatusInternalServerError, err)
+		// 	return
+		// }
 
 		s.respond(w, r, http.StatusCreated, nil)
 	}
@@ -192,7 +217,7 @@ func (s *server) handleRenameFile() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.logger.Info("RENEMA FILE")
 
-		req := &files.Rename{}
+		req := &storage.Rename{}
 		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 			s.error(w, r, http.StatusUnprocessableEntity, err)
 		}
@@ -209,7 +234,7 @@ func (s *server) handleMoveFile() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.logger.Info("RENAME FILE")
 
-		req := &files.Move{}
+		req := &storage.Move{}
 		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 			s.error(w, r, http.StatusUnprocessableEntity, err)
 			return
@@ -250,7 +275,7 @@ func (s *server) handleRenameDirectory() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.logger.Info("RENAME DIRECTORY")
 
-		req := &files.Rename{}
+		req := &storage.Rename{}
 		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 			s.error(w, r, http.StatusUnprocessableEntity, err)
 			return
