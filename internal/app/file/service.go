@@ -1,7 +1,6 @@
 package file
 
 import (
-	"bytes"
 	"context"
 
 	"github.com/sirupsen/logrus"
@@ -22,7 +21,7 @@ func NewService(minioStorage Storage, logger *logrus.Logger) (Service, error) {
 type Service interface {
 	GetFile(context.Context, string) (*File, error)
 	GetFiles(context.Context) ([]string, error)
-	UploadFile(context.Context, CreateFileDTO) error
+	UploadFile(context.Context, *Upload) error
 	RemoveFile(context.Context, string) error
 	RenameFile(context.Context, Rename) error
 	MoveFile(context.Context, Move) error
@@ -48,14 +47,14 @@ func (s *service) GetFiles(ctx context.Context) ([]string, error) {
 	return files, nil
 }
 
-func (s *service) UploadFile(ctx context.Context, dto CreateFileDTO) error {
-	dto.NormalizeName()
-	file, err := NewFile(dto)
-	if err != nil {
-		return err
-	}
+func (s *service) UploadFile(ctx context.Context, file *Upload) error {
+	// dto.NormalizeName()
+	// file, err := NewFile(dto)
+	// if err != nil {
+	// 	return err
+	// }
 
-	if err := s.storage.UploadFile(ctx, file.Name, file.Size, bytes.NewBuffer(file.Bytes)); err != nil {
+	if err := s.storage.UploadFile(ctx, file.Name, file.Size, file.Data); err != nil {
 		return err
 	}
 
