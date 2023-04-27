@@ -1,0 +1,7 @@
+# access_key = "3FHyNbNYyWySG4sM"
+bind_addr = ":8081"
+endpoint = "127.0.0.1:9000"
+log_level = "debug"
+# secret_key = "Lp0E7WUn0riwZ2wvJLkrX56zSAnEr7DW"
+access_key = "lean"
+secret_key = "lean2823"
