@@ -2,7 +2,6 @@ package minio
 
 import (
 	"context"
-	files "filemanager/internal/app/file"
 	"fmt"
 	"io"
 	"path"
@@ -47,37 +46,42 @@ func NewClient(endpoint, accessKey, secretKey string, logger *logrus.Logger) (*C
 }
 
 // TODO: пофиксит передачу имени файла
-func (c *Client) GetFile(ctx context.Context, fileName string) (*files.File, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+func (c *Client) GetFile(ctx context.Context, fileName string) (*minio.Object, error) {
+	// reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// defer cancel()
 
-	obj, err := c.client.GetObject(reqCtx, c.bucket, fileName, minio.GetObjectOptions{})
+	// obj, err := c.client.GetObject(reqCtx, c.bucket, fileName, minio.GetObjectOptions{})
+	// if err != nil {
+	// 	return nil, fmt.Errorf("Failed to get file with id: %s from minio bucker %s. err %w", fileName, c.bucket, err)
+	// }
+
+	// defer obj.Close()
+
+	// objectInfo, err := obj.Stat()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("Failed to get file. err: %w", err)
+	// }
+	// buffer := make([]byte, objectInfo.Size)
+	// _, err = obj.Read(buffer)
+	// if err != nil && err != io.EOF {
+	// 	return nil, fmt.Errorf("Failed to get file. err: %w", err)
+	// }
+	// split := strings.Split(objectInfo.Key, "/")
+	// name := split[len(split)-1]
+
+	// f := files.File{
+	// 	Name:  name,
+	// 	Size:  objectInfo.Size,
+	// 	Type:  objectInfo.ContentType,
+	// 	Bytes: buffer,
+	// }
+
+	obj, err := c.client.GetObject(ctx, c.bucket, fileName, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get file with id: %s from minio bucker %s. err %w", fileName, c.bucket, err)
+		return nil, err
 	}
 
-	defer obj.Close()
-
-	objectInfo, err := obj.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get file. err: %w", err)
-	}
-	buffer := make([]byte, objectInfo.Size)
-	_, err = obj.Read(buffer)
-	if err != nil && err != io.EOF {
-		return nil, fmt.Errorf("Failed to get file. err: %w", err)
-	}
-	split := strings.Split(objectInfo.Key, "/")
-	name := split[len(split)-1]
-
-	f := files.File{
-		Name:  name,
-		Size:  objectInfo.Size,
-		Type:  objectInfo.ContentType,
-		Bytes: buffer,
-	}
-
-	return &f, nil
+	return obj, nil
 }
 
 func (c *Client) GetFiles(ctx context.Context) ([]string, error) {
