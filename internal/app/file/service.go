@@ -29,6 +29,7 @@ type Service interface {
 
 	CreateDirectory(context.Context, string) error
 	RenameDirectory(context.Context, Rename) error
+	MoveDirectory(context.Context, Move) error
 }
 
 func (s *service) GetFile(ctx context.Context, filename string) (*File, error) {
@@ -61,12 +62,6 @@ func (s *service) GetFiles(ctx context.Context) ([]string, error) {
 }
 
 func (s *service) UploadFile(ctx context.Context, file *Upload) error {
-	// dto.NormalizeName()
-	// file, err := NewFile(dto)
-	// if err != nil {
-	// 	return err
-	// }
-
 	if err := s.storage.UploadFile(ctx, file.Name, file.Size, file.Data); err != nil {
 		return err
 	}
@@ -108,6 +103,14 @@ func (s *service) CreateDirectory(ctx context.Context, dir string) error {
 
 func (s *service) RenameDirectory(ctx context.Context, dirName Rename) error {
 	if err := s.storage.RenameDirectory(ctx, dirName.Old, dirName.New); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *service) MoveDirectory(ctx context.Context, dirName Move) error {
+	if err := s.storage.RenameDirectory(ctx, dirName.Src, dirName.Dst); err != nil {
 		return err
 	}
 

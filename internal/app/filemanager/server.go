@@ -63,6 +63,7 @@ func (s *server) configureRouter() {
 	dirRouter := s.router.PathPrefix("/dir").Subrouter()
 	dirRouter.HandleFunc("/create", s.handleCreateDirectory()).Methods("POST", "OPTIONS")
 	dirRouter.HandleFunc("/rename", s.handleRenameDirectory()).Methods("POST", "OPTIONS")
+	dirRouter.HandleFunc("/move", s.handleMoveDirectory()).Methods("POST", "OPTIONS")
 }
 
 func (s *server) handleUpload() http.HandlerFunc {
@@ -113,21 +114,6 @@ func (s *server) handleUpload() http.HandlerFunc {
 			}
 		}
 
-		// fileInfo := file[0]
-		// fileReader, err := fileInfo.Open()
-		// dto := files.CreateFileDTO{
-		// 	Name:   fileInfo.Filename,
-		// 	Dir:    dir[0],
-		// 	Size:   fileInfo.Size,
-		// 	Reader: fileReader,
-		// }
-
-		// err = s.service.UploadFile(r.Context(), dto)
-		// if err != nil {
-		// 	s.error(w, r, http.StatusInternalServerError, err)
-		// 	return
-		// }
-
 		s.respond(w, r, http.StatusCreated, nil)
 	}
 }
@@ -155,10 +141,6 @@ func (s *server) handleGetFiles() http.HandlerFunc {
 }
 
 func (s *server) handleGetFile() http.HandlerFunc {
-	type files struct {
-		Filename string `json:"filename"`
-	}
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		fileName := strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
 		if !(fileName == "") {
@@ -235,7 +217,7 @@ func (s *server) handleRenameFile() http.HandlerFunc {
 
 func (s *server) handleMoveFile() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		s.logger.Info("RENAME FILE")
+		s.logger.Info("MOVE FILE")
 
 		req := &storage.Move{}
 		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
@@ -285,6 +267,25 @@ func (s *server) handleRenameDirectory() http.HandlerFunc {
 		}
 
 		if err := s.service.RenameDirectory(r.Context(), *req); err != nil {
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		s.respond(w, r, http.StatusOK, nil)
+	}
+}
+
+func (s *server) handleMoveDirectory() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.logger.Info("MOVE DIRECTORY")
+
+		req := &storage.Move{}
+		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+			s.error(w, r, http.StatusUnprocessableEntity, err)
+			return
+		}
+
+		if err := s.service.MoveDirectory(r.Context(), *req); err != nil {
 			s.error(w, r, http.StatusInternalServerError, err)
 			return
 		}
