@@ -47,35 +47,6 @@ func NewClient(endpoint, accessKey, secretKey string, logger *logrus.Logger) (*C
 
 // TODO: пофиксит передачу имени файла
 func (c *Client) GetFile(ctx context.Context, fileName string) (*minio.Object, error) {
-	// reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	// defer cancel()
-
-	// obj, err := c.client.GetObject(reqCtx, c.bucket, fileName, minio.GetObjectOptions{})
-	// if err != nil {
-	// 	return nil, fmt.Errorf("Failed to get file with id: %s from minio bucker %s. err %w", fileName, c.bucket, err)
-	// }
-
-	// defer obj.Close()
-
-	// objectInfo, err := obj.Stat()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("Failed to get file. err: %w", err)
-	// }
-	// buffer := make([]byte, objectInfo.Size)
-	// _, err = obj.Read(buffer)
-	// if err != nil && err != io.EOF {
-	// 	return nil, fmt.Errorf("Failed to get file. err: %w", err)
-	// }
-	// split := strings.Split(objectInfo.Key, "/")
-	// name := split[len(split)-1]
-
-	// f := files.File{
-	// 	Name:  name,
-	// 	Size:  objectInfo.Size,
-	// 	Type:  objectInfo.ContentType,
-	// 	Bytes: buffer,
-	// }
-
 	obj, err := c.client.GetObject(ctx, c.bucket, fileName, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, err
@@ -94,7 +65,7 @@ func (c *Client) GetFiles(ctx context.Context) ([]string, error) {
 			c.logger.Errorf("Failed to list object from minio object: %s. err: %v", c.bucket, lobj.Err)
 			continue
 		}
-		object, err := c.client.GetObject(ctx, c.bucket, lobj.Key, minio.GetObjectOptions{})
+		object, err := c.client.GetObject(reqCtx, c.bucket, lobj.Key, minio.GetObjectOptions{})
 		if err != nil {
 			c.logger.Errorf("Failed to get object key=%s from minio bucket: %s. err: %v", lobj.Key, c.bucket, lobj.Err)
 			continue
