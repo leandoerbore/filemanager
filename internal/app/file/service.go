@@ -2,6 +2,7 @@ package file
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 )
@@ -31,12 +32,24 @@ type Service interface {
 }
 
 func (s *service) GetFile(ctx context.Context, filename string) (*File, error) {
-	file, err := s.storage.GetFile(ctx, filename)
+	obj, err := s.storage.GetFile(ctx, filename)
 	if err != nil {
 		return nil, err
 	}
 
-	return file, nil
+	objectInfo, err := obj.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("Obj.stat error: %v", err)
+	}
+
+	f := File{
+		ID:   objectInfo.Key,
+		Size: objectInfo.Size,
+		Type: objectInfo.ContentType,
+		Obj:  obj,
+	}
+
+	return &f, nil
 }
 
 func (s *service) GetFiles(ctx context.Context) ([]string, error) {

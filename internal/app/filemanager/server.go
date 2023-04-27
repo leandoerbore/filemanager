@@ -3,7 +3,9 @@ package filemanager
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gorilla/handlers"
@@ -165,8 +167,9 @@ func (s *server) handleGetFile() http.HandlerFunc {
 				s.error(w, r, http.StatusInternalServerError, err)
 				return
 			}
-			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", file.Name))
-			w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
+			w.Header().Set("Content-Length", strconv.Itoa(int(file.Size)))
+			w.Header().Set("Content-Type", file.Type)
+			io.Copy(w, file.Obj)
 			s.respond(w, r, http.StatusOK, file)
 		} else {
 			s.logger.Info("Get files from bucket")
