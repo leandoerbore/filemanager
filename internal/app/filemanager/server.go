@@ -24,6 +24,10 @@ type server struct {
 	service storage.Service
 }
 
+const (
+	prefix string = "backend/"
+)
+
 func newServer(client *minio.Client, logger *logrus.Logger) *server {
 	service, err := storage.NewService(client, logger)
 	if err != nil {
@@ -64,6 +68,7 @@ func (s *server) configureRouter() {
 	dirRouter.HandleFunc("/create", s.handleCreateDirectory()).Methods("POST", "OPTIONS")
 	dirRouter.HandleFunc("/rename", s.handleRenameDirectory()).Methods("POST", "OPTIONS")
 	dirRouter.HandleFunc("/move", s.handleMoveDirectory()).Methods("POST", "OPTIONS")
+	dirRouter.HandleFunc("/remove", s.handleRemoveDirectory()).Methods("DELETE", "OPTIONS")
 }
 
 func (s *server) handleUpload() http.HandlerFunc {
@@ -99,7 +104,7 @@ func (s *server) handleUpload() http.HandlerFunc {
 			if err != nil {
 				s.error(w, r, http.StatusBadRequest, err)
 			}
-			name = fmt.Sprintf("%s/%s", dir[0], name)
+			name = fmt.Sprintf("%s%s/%s", prefix, dir[0], name)
 			fileType := file.Header.Get("Content-Type")
 
 			f := storage.Upload{
@@ -144,7 +149,7 @@ func (s *server) handleGetFile() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fileName := strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
 		if !(fileName == "") {
-			file, err := s.service.GetFile(r.Context(), fileName)
+			file, err := s.service.GetFile(r.Context(), prefix+fileName)
 			if err != nil {
 				s.error(w, r, http.StatusInternalServerError, err)
 				return
@@ -156,12 +161,8 @@ func (s *server) handleGetFile() http.HandlerFunc {
 		} else {
 			s.logger.Info("Get files from bucket")
 
+			//files, err := s.service.GetFiles(r.Context())
 			files, err := s.service.GetFiles(r.Context())
-			if err != nil {
-				s.error(w, r, http.StatusInternalServerError, err)
-				return
-			}
-
 			if err != nil {
 				s.error(w, r, http.StatusInternalServerError, err)
 				return
@@ -186,12 +187,14 @@ func (s *server) handleRemoveFile() http.HandlerFunc {
 		req := &request{}
 		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 			s.error(w, r, http.StatusUnprocessableEntity, err)
+			return
 		}
 
-		filename := req.Filename
+		filename := prefix + req.Filename
 
 		if err := s.service.RemoveFile(r.Context(), filename); err != nil {
-			s.error(w, r, http.StatusUnprocessableEntity, nil)
+			s.error(w, r, http.StatusUnprocessableEntity, err)
+			return
 		}
 
 		s.respond(w, r, http.StatusOK, nil)
@@ -200,12 +203,14 @@ func (s *server) handleRemoveFile() http.HandlerFunc {
 
 func (s *server) handleRenameFile() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		s.logger.Info("RENEMA FILE")
+		s.logger.Info("RENAME FILE")
 
 		req := &storage.Rename{}
 		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 			s.error(w, r, http.StatusUnprocessableEntity, err)
 		}
+		req.New = prefix + req.New
+		req.Old = prefix + req.Old
 
 		if err := s.service.RenameFile(r.Context(), *req); err != nil {
 			s.error(w, r, http.StatusInternalServerError, err)
@@ -224,6 +229,8 @@ func (s *server) handleMoveFile() http.HandlerFunc {
 			s.error(w, r, http.StatusUnprocessableEntity, err)
 			return
 		}
+		req.Dst = prefix + req.Dst
+		req.Src = prefix + req.Src
 
 		if err := s.service.MoveFile(r.Context(), *req); err != nil {
 			s.error(w, r, http.StatusInternalServerError, err)
@@ -247,7 +254,7 @@ func (s *server) handleCreateDirectory() http.HandlerFunc {
 			return
 		}
 
-		if err := s.service.CreateDirectory(r.Context(), req.Dir); err != nil {
+		if err := s.service.CreateDirectory(r.Context(), prefix+req.Dir); err != nil {
 			s.error(w, r, http.StatusInternalServerError, err)
 			return
 		}
@@ -265,6 +272,9 @@ func (s *server) handleRenameDirectory() http.HandlerFunc {
 			s.error(w, r, http.StatusUnprocessableEntity, err)
 			return
 		}
+
+		req.New = prefix + req.New
+		req.Old = prefix + req.Old
 
 		if err := s.service.RenameDirectory(r.Context(), *req); err != nil {
 			s.error(w, r, http.StatusInternalServerError, err)
@@ -285,7 +295,33 @@ func (s *server) handleMoveDirectory() http.HandlerFunc {
 			return
 		}
 
+		req.Dst = prefix + req.Dst
+		req.Src = prefix + req.Src
+
 		if err := s.service.MoveDirectory(r.Context(), *req); err != nil {
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		s.respond(w, r, http.StatusOK, nil)
+	}
+}
+
+func (s *server) handleRemoveDirectory() http.HandlerFunc {
+	type request struct {
+		Dir string `json:"dir"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.logger.Info("REMOVE DIRECTORY")
+
+		req := &request{}
+		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+			s.error(w, r, http.StatusUnprocessableEntity, err)
+			return
+		}
+
+		if err := s.service.RemoveDirectory(r.Context(), prefix+req.Dir); err != nil {
 			s.error(w, r, http.StatusInternalServerError, err)
 			return
 		}

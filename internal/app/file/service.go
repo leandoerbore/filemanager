@@ -8,11 +8,11 @@ import (
 )
 
 type service struct {
-	storage Storage
+	storage Client
 	logger  *logrus.Logger
 }
 
-func NewService(minioStorage Storage, logger *logrus.Logger) (Service, error) {
+func NewService(minioStorage Client, logger *logrus.Logger) (Service, error) {
 	return &service{
 		storage: minioStorage,
 		logger:  logger,
@@ -21,15 +21,26 @@ func NewService(minioStorage Storage, logger *logrus.Logger) (Service, error) {
 
 type Service interface {
 	GetFile(context.Context, string) (*File, error)
-	GetFiles(context.Context) ([]string, error)
 	UploadFile(context.Context, *Upload) error
 	RemoveFile(context.Context, string) error
 	RenameFile(context.Context, Rename) error
 	MoveFile(context.Context, Move) error
 
+	GetFiles(context.Context) ([]SubDir, error)
+
 	CreateDirectory(context.Context, string) error
 	RenameDirectory(context.Context, Rename) error
 	MoveDirectory(context.Context, Move) error
+	RemoveDirectory(context.Context, string) error
+}
+
+func (s *service) GetFiles(ctx context.Context) ([]SubDir, error) {
+	object, err := s.storage.GetFiles(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Obj err: %v", err)
+	}
+
+	return object, nil
 }
 
 func (s *service) GetFile(ctx context.Context, filename string) (*File, error) {
@@ -51,14 +62,6 @@ func (s *service) GetFile(ctx context.Context, filename string) (*File, error) {
 	}
 
 	return &f, nil
-}
-
-func (s *service) GetFiles(ctx context.Context) ([]string, error) {
-	files, err := s.storage.GetFiles(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return files, nil
 }
 
 func (s *service) UploadFile(ctx context.Context, file *Upload) error {
@@ -111,6 +114,14 @@ func (s *service) RenameDirectory(ctx context.Context, dirName Rename) error {
 
 func (s *service) MoveDirectory(ctx context.Context, dirName Move) error {
 	if err := s.storage.RenameDirectory(ctx, dirName.Src, dirName.Dst); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *service) RemoveDirectory(ctx context.Context, dirName string) error {
+	if err := s.storage.RemoveDirectory(ctx, dirName); err != nil {
 		return err
 	}
 

@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"path"
+	"sort"
 	"strings"
 	"time"
+
+	model "filemanager/internal/app/file"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -16,12 +20,6 @@ import (
 var (
 	bucket = "static"
 )
-
-type Object struct {
-	ID   string
-	Size int64
-	Tags map[string]string
-}
 
 type Client struct {
 	logger *logrus.Logger
@@ -45,7 +43,6 @@ func NewClient(endpoint, accessKey, secretKey string, logger *logrus.Logger) (*C
 	}, nil
 }
 
-// TODO: пофиксит передачу имени файла
 func (c *Client) GetFile(ctx context.Context, fileName string) (*minio.Object, error) {
 	obj, err := c.client.GetObject(ctx, c.bucket, fileName, minio.GetObjectOptions{})
 	if err != nil {
@@ -55,38 +52,117 @@ func (c *Client) GetFile(ctx context.Context, fileName string) (*minio.Object, e
 	return obj, nil
 }
 
-func (c *Client) GetFiles(ctx context.Context) ([]string, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+func (c *Client) GetFiles(ctx context.Context) ([]model.SubDir, error) {
+	objectCh := c.client.ListObjects(ctx, c.bucket, minio.ListObjectsOptions{
+		Prefix:    "backend",
+		Recursive: true,
+	})
 
-	var objects []*minio.Object
-	for lobj := range c.client.ListObjects(reqCtx, c.bucket, minio.ListObjectsOptions{WithMetadata: true, Recursive: true}) {
-		if lobj.Err != nil {
-			c.logger.Errorf("Failed to list object from minio object: %s. err: %v", c.bucket, lobj.Err)
-			continue
-		}
-		object, err := c.client.GetObject(reqCtx, c.bucket, lobj.Key, minio.GetObjectOptions{})
-		if err != nil {
-			c.logger.Errorf("Failed to get object key=%s from minio bucket: %s. err: %v", lobj.Key, c.bucket, lobj.Err)
-			continue
+	var folders []string
+	for object := range objectCh {
+		if object.Err != nil {
+			return nil, object.Err
 		}
 
-		objects = append(objects, object)
+		name := strings.TrimPrefix(object.Key, "backend/")
+		name = strings.TrimSuffix(name, "/")
+
+		folders = append(folders, name)
 	}
 
-	var files []string
-	for _, obj := range objects {
-		stat, err := obj.Stat()
-		if err != nil {
-			c.logger.Errorf("Failed to get objects. err: %v", err)
-			continue
-		}
+	subDir := toTree(folders)
 
-		files = append(files, stat.Key)
-		obj.Close()
+	if subDir == nil {
+		return nil, fmt.Errorf("Empty data")
 	}
 
-	return files, nil
+	return subDir, nil
+}
+
+func toTree(objectKeys []string) []model.SubDir {
+	dirsMap := make(map[string]model.Dir)
+
+	if len(objectKeys) == 1 {
+		key := objectKeys[0]
+		if i := strings.IndexByte(key, '/'); i > 0 {
+			nameDir := key[:i]
+			subPath := key[i+1:]
+
+			var (
+				f, sb []string
+				err   error
+			)
+			subPath, err = url.QueryUnescape(subPath)
+			if err != nil {
+
+			} else {
+				if isFile(subPath) {
+					f = []string{subPath}
+				} else {
+					sb = []string{subPath}
+				}
+			}
+
+			dirsMap[nameDir] = model.Dir{
+				SubDirs: sb,
+				Files:   f,
+			}
+		} else {
+			dirsMap[key] = model.Dir{}
+		}
+	} else {
+		for _, key := range objectKeys {
+			if i := strings.IndexByte(key, '/'); i > 0 {
+				nameDir := key[:i]
+				subPath := key[i+1:]
+				sb := dirsMap[nameDir].SubDirs
+				f := dirsMap[nameDir].Files
+
+				var err error
+				subPath, err = url.QueryUnescape(subPath)
+				if err != nil {
+
+				} else {
+					if isFile(subPath) {
+						f = append(f, subPath)
+					} else {
+						sb = append(sb, subPath)
+					}
+				}
+
+				dirsMap[nameDir] = model.Dir{
+					SubDirs: sb,
+					Files:   f,
+				}
+			} else {
+				dirsMap[key] = model.Dir{}
+			}
+		}
+	}
+
+	subDirs := make([]model.SubDir, len(dirsMap))
+	i := 0
+	for k, v := range dirsMap {
+		subDirs[i] = model.SubDir{
+			Name:    k,
+			SubDirs: toTree(v.SubDirs),
+			Files:   v.Files,
+		}
+		i++
+	}
+
+	sort.Slice(subDirs, func(i, j int) bool {
+		return subDirs[j].Name > subDirs[i].Name
+	})
+
+	return subDirs
+}
+
+func isFile(path string) bool {
+	if strings.Contains(path, ".") && !strings.Contains(path, "/") {
+		return true
+	}
+	return false
 }
 
 func (c *Client) UploadFile(ctx context.Context, fileName string, fileSize int64, reader io.Reader) error {
@@ -115,8 +191,8 @@ func (c *Client) UploadFile(ctx context.Context, fileName string, fileSize int64
 }
 
 func (c *Client) RemoveFile(ctx context.Context, fileName string) error {
-	err := c.client.RemoveObject(ctx, c.bucket, fileName, minio.RemoveObjectOptions{})
-	if err != nil {
+	c.logger.Infof("name: %s", fileName)
+	if err := c.client.RemoveObject(ctx, c.bucket, fileName, minio.RemoveObjectOptions{}); err != nil {
 		return fmt.Errorf("Failed to delete file. err: %w", err)
 	}
 
@@ -175,6 +251,33 @@ func (c *Client) RenameDirectory(ctx context.Context, old, new string) error {
 		); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (c *Client) RemoveDirectory(ctx context.Context, dir string) error {
+	objectsCh := make(chan minio.ObjectInfo)
+
+	go func() {
+		defer close(objectsCh)
+
+		for object := range c.client.ListObjects(ctx, c.bucket, minio.ListObjectsOptions{
+			Prefix:    dir,
+			Recursive: true,
+		}) {
+			if object.Err != nil {
+				c.logger.Errorf("list of objects error: %v", object.Err.Error())
+			} else {
+				objectsCh <- object
+			}
+		}
+	}()
+
+	for rErr := range c.client.RemoveObjects(ctx, c.bucket, objectsCh, minio.RemoveObjectsOptions{
+		GovernanceBypass: true,
+	}) {
+		c.logger.Errorf("remove object error %v", rErr.Err.Error())
 	}
 
 	return nil
