@@ -1,18 +1,18 @@
 package file
 
 import (
-	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 )
 
 type service struct {
-	storage Storage
+	storage Client
 	logger  *logrus.Logger
 }
 
-func NewService(minioStorage Storage, logger *logrus.Logger) (Service, error) {
+func NewService(minioStorage Client, logger *logrus.Logger) (Service, error) {
 	return &service{
 		storage: minioStorage,
 		logger:  logger,
@@ -21,41 +21,51 @@ func NewService(minioStorage Storage, logger *logrus.Logger) (Service, error) {
 
 type Service interface {
 	GetFile(context.Context, string) (*File, error)
-	GetFiles(context.Context) ([]string, error)
-	UploadFile(context.Context, CreateFileDTO) error
+	UploadFile(context.Context, *Upload) error
 	RemoveFile(context.Context, string) error
 	RenameFile(context.Context, Rename) error
 	MoveFile(context.Context, Move) error
 
+	GetFiles(context.Context) ([]SubDir, error)
+
 	CreateDirectory(context.Context, string) error
 	RenameDirectory(context.Context, Rename) error
+	MoveDirectory(context.Context, Move) error
+	RemoveDirectory(context.Context, string) error
+}
+
+func (s *service) GetFiles(ctx context.Context) ([]SubDir, error) {
+	object, err := s.storage.GetFiles(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Obj err: %v", err)
+	}
+
+	return object, nil
 }
 
 func (s *service) GetFile(ctx context.Context, filename string) (*File, error) {
-	file, err := s.storage.GetFile(ctx, filename)
+	obj, err := s.storage.GetFile(ctx, filename)
 	if err != nil {
 		return nil, err
 	}
 
-	return file, nil
-}
-
-func (s *service) GetFiles(ctx context.Context) ([]string, error) {
-	files, err := s.storage.GetFiles(ctx)
+	objectInfo, err := obj.Stat()
 	if err != nil {
-		return nil, err
-	}
-	return files, nil
-}
-
-func (s *service) UploadFile(ctx context.Context, dto CreateFileDTO) error {
-	dto.NormalizeName()
-	file, err := NewFile(dto)
-	if err != nil {
-		return err
+		return nil, fmt.Errorf("Obj.stat error: %v", err)
 	}
 
-	if err := s.storage.UploadFile(ctx, file.Name, file.Size, bytes.NewBuffer(file.Bytes)); err != nil {
+	f := File{
+		ID:   objectInfo.Key,
+		Size: objectInfo.Size,
+		Type: objectInfo.ContentType,
+		Obj:  obj,
+	}
+
+	return &f, nil
+}
+
+func (s *service) UploadFile(ctx context.Context, file *Upload) error {
+	if err := s.storage.UploadFile(ctx, file.Name, file.Size, file.Data); err != nil {
 		return err
 	}
 
@@ -96,6 +106,22 @@ func (s *service) CreateDirectory(ctx context.Context, dir string) error {
 
 func (s *service) RenameDirectory(ctx context.Context, dirName Rename) error {
 	if err := s.storage.RenameDirectory(ctx, dirName.Old, dirName.New); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *service) MoveDirectory(ctx context.Context, dirName Move) error {
+	if err := s.storage.RenameDirectory(ctx, dirName.Src, dirName.Dst); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *service) RemoveDirectory(ctx context.Context, dirName string) error {
+	if err := s.storage.RemoveDirectory(ctx, dirName); err != nil {
 		return err
 	}
 
